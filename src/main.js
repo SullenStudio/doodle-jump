@@ -14,7 +14,12 @@ function setScreen(name) {
 }
 
 let padDir = 0;
+let swipeDir = 0;
 let playHandler = null;
+let swipeStart = null;
+document.getElementById("game-wrap")?.addEventListener("pointerdown", (e) => {
+  swipeStart = { x: e.clientX, y: e.clientY };
+});
 document.getElementById("steer")?.addEventListener("pointerdown", (e) => {
   const btn = e.target.closest("[data-dir]");
   if (!btn) return;
@@ -28,8 +33,14 @@ document.getElementById("steer")?.addEventListener("pointerup", () => {
 document.getElementById("steer")?.addEventListener("pointercancel", () => {
   padDir = 0;
 });
-window.addEventListener("pointerup", () => {
+window.addEventListener("pointerup", (e) => {
   padDir = 0;
+  if (!swipeStart) return;
+  const dx = e.clientX - swipeStart.x;
+  const dy = e.clientY - swipeStart.y;
+  swipeStart = null;
+  if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy)) return;
+  swipeDir = Math.sign(dx);
 });
 document.getElementById("btn-play")?.addEventListener("click", (e) => {
   e.preventDefault();
@@ -209,7 +220,7 @@ scene("menu", () => {
     opacity(0.55),
   ]);
   add([
-    text("on phone use the LEFT / RIGHT buttons", { size: 16 }),
+    text("on phone swipe left / right, or use the buttons", { size: 16 }),
     pos(W / 2, 808),
     anchor("center"),
     color(COL.text),
@@ -233,6 +244,7 @@ scene("menu", () => {
 scene("game", () => {
   setScreen("play");
   padDir = 0;
+  swipeDir = 0;
   setGravity(GRAVITY);
   camPos(vec2(W / 2, H / 2));
   addStarfield();
@@ -520,6 +532,7 @@ scene("game", () => {
     if (isKeyDown("left") || isKeyDown("a")) d -= 1;
     if (isKeyDown("right") || isKeyDown("d")) d += 1;
     if (padDir !== 0) d = padDir;
+    else if (swipeDir !== 0) d = swipeDir;
     else if (touchDir !== 0) d = touchDir;
     else if (!phone && isMouseDown("left")) d = mousePos().x < W / 2 ? -1 : 1;
     return d;
