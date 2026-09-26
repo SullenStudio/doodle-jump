@@ -1,0 +1,83 @@
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #090c0b;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100dvh;
+}
+
+#game-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+#game-wrap canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#mobile-ui {
+  display: none;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 14px calc(12px + env(safe-area-inset-bottom));
+  background: #06110c;
+  border-top: 1px solid #0f3d2c;
+}
+
+html.phone #mobile-ui {
+  display: flex;
+}
+
+#btn-play {
+  display: none;
+  height: 58px;
+  border: 0;
+  border-radius: 16px;
+  background: #0ab876;
+  color: #04140d;
+  font: 800 22px/1 Arial, sans-serif;
+  letter-spacing: 0.08em;
+}
+
+html.phone.menu #btn-play,
+html.phone.over #btn-play {
+  display: block;
+}
+
+html.phone.menu #steer,
+html.phone.over #steer {
+  display: none;
+}
+
+#steer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+#steer button {
+  height: 72px;
+  border: 1px solid #127a54;
+  border-radius: 16px;
+  background: #0c2a1d;
+  color: #d9fff0;
+  font: 800 20px/1 Arial, sans-serif;
+}
+
+#steer button:active,
+#btn-play:active {
+  filter: brightness(1.25);
+}

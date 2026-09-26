@@ -1,4 +1,41 @@
 import kaplay from "kaplay";
+import "./mobile.css";
+
+const phone =
+  window.matchMedia("(pointer: coarse)").matches ||
+  "ontouchstart" in window ||
+  navigator.maxTouchPoints > 0;
+if (phone) document.documentElement.classList.add("phone");
+
+function setScreen(name) {
+  document.documentElement.classList.toggle("menu", name === "menu");
+  document.documentElement.classList.toggle("over", name === "over");
+  document.documentElement.classList.toggle("play", name === "play");
+}
+
+let padDir = 0;
+let playHandler = null;
+document.getElementById("steer")?.addEventListener("pointerdown", (e) => {
+  const btn = e.target.closest("[data-dir]");
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  padDir = Number(btn.dataset.dir);
+});
+document.getElementById("steer")?.addEventListener("pointerup", () => {
+  padDir = 0;
+});
+document.getElementById("steer")?.addEventListener("pointercancel", () => {
+  padDir = 0;
+});
+window.addEventListener("pointerup", () => {
+  padDir = 0;
+});
+document.getElementById("btn-play")?.addEventListener("click", (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  playHandler?.();
+});
 
 kaplay({
   width: 540,
@@ -6,7 +43,9 @@ kaplay({
   letterbox: true,
   crisp: true,
   pixelDensity: Math.min(devicePixelRatio, 2),
-  background: "#090c0b",
+  background: [9, 12, 11],
+  root: document.getElementById("game-wrap"),
+  touchToMouse: true,
 });
 
 // ---------------------------------------------------------------- tuning ---
@@ -88,6 +127,9 @@ function addStarfield() {
 
 // =================================================================== MENU ==
 scene("menu", () => {
+  setScreen("menu");
+  const playBtn = document.getElementById("btn-play");
+  if (playBtn) playBtn.textContent = "PLAY";
   camPos(vec2(W / 2, H / 2));
   addStarfield();
 
@@ -167,7 +209,7 @@ scene("menu", () => {
     opacity(0.55),
   ]);
   add([
-    text("on mobile hold a screen half or drag", { size: 16 }),
+    text("on phone use the LEFT / RIGHT buttons", { size: 16 }),
     pos(W / 2, 808),
     anchor("center"),
     color(COL.text),
@@ -180,6 +222,7 @@ scene("menu", () => {
     started = true;
     go("game");
   };
+  playHandler = start;
   onKeyPress("space", start);
   onKeyPress("enter", start);
   onMousePress(start);
@@ -188,6 +231,8 @@ scene("menu", () => {
 
 // =================================================================== GAME ==
 scene("game", () => {
+  setScreen("play");
+  padDir = 0;
   setGravity(GRAVITY);
   camPos(vec2(W / 2, H / 2));
   addStarfield();
@@ -440,13 +485,6 @@ scene("game", () => {
     z(10),
   ]);
 
-  // TEMP DEBUG (removed before ship)
-  window.__dj = {
-    player,
-    score: () => scoreLabel.text,
-    platforms: () => get("platform").length,
-  };
-
   // -------------------------------------------------------------- input ---
   function recalcTouchDir() {
     if (activeTouches.size === 0) {
@@ -481,8 +519,9 @@ scene("game", () => {
     let d = 0;
     if (isKeyDown("left") || isKeyDown("a")) d -= 1;
     if (isKeyDown("right") || isKeyDown("d")) d += 1;
-    if (touchDir !== 0) d = touchDir;
-    else if (isMouseDown("left")) d = mousePos().x < W / 2 ? -1 : 1;
+    if (padDir !== 0) d = padDir;
+    else if (touchDir !== 0) d = touchDir;
+    else if (!phone && isMouseDown("left")) d = mousePos().x < W / 2 ? -1 : 1;
     return d;
   }
 
@@ -610,6 +649,9 @@ scene("game", () => {
 
 // ============================================================== GAME OVER ==
 scene("gameover", ({ score, best, isNew }) => {
+  setScreen("over");
+  const playBtn = document.getElementById("btn-play");
+  if (playBtn) playBtn.textContent = "AGAIN";
   camPos(vec2(W / 2, H / 2));
   addStarfield();
 
@@ -670,6 +712,7 @@ scene("gameover", ({ score, best, isNew }) => {
     started = true;
     go("game");
   };
+  playHandler = retry;
   onKeyPress("space", retry);
   onKeyPress("enter", retry);
   // small delay so a death-touch doesn't instantly restart
