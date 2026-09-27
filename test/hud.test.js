@@ -18,9 +18,22 @@ describe("faceState", () => {
     expect(faceState(-10)).toBe("dead");
   });
 
-  it("covers every integer from 0 to 100 without gaps", () => {
+  // Walks every integer and asserts the EXPECTED band, derived independently
+  // from the documented thresholds. The previous version only asserted the
+  // return was a string, which would have passed even if faceState returned
+  // one constant for every input — it could not catch an off-by-one boundary.
+  it("maps every integer 0..100 to the band its thresholds demand", () => {
+    const expected = (hp) => {
+      if (hp <= 0) return "dead";
+      if (hp < 25) return "bloodied";
+      if (hp < 50) return "angry";
+      if (hp < 75) return "grim";
+      return "calm";
+    };
     for (let hp = 0; hp <= 100; hp++) {
-      expect(typeof faceState(hp)).toBe("string");
+      expect(faceState(hp), `hp ${hp} landed in the wrong band`).toBe(
+        expected(hp),
+      );
     }
   });
 });

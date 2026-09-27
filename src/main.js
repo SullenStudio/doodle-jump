@@ -11,35 +11,31 @@ import {
   PLAT_W,
   PLAT_H,
   START_Y,
-  BEST_KEY,
   GRUNT,
 } from "./config.js";
 import { rollPlatformPickup, addPickup, dropFromDemon } from "./pickups.js";
-import { COL, initPalette } from "./palette.js";
+import { initPalette } from "./palette.js";
 import { DT } from "./frame.js";
 import {
   initInput,
-  registerPlayHandler,
   resetInput,
   bindSceneTouch,
   steerDir,
   fireDown,
   isTouchDevice,
 } from "./input.js";
-import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
+import { createPlayer, createGhosts, takeHit } from "./player.js";
 import { createArsenal } from "./weapons.js";
 import { addStarfield, createWorld } from "./world.js";
 import { createHorde } from "./demons.js";
 import { createHud } from "./hud.js";
 import { sfx } from "./audio.js";
+import { getBest, setBest } from "./best.js";
+import { setScreen } from "./screen.js";
+import { registerMenuScene } from "./scenes/menu.js";
+import { registerGameoverScene } from "./scenes/gameover.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
-
-function setScreen(name) {
-  document.documentElement.classList.toggle("menu", name === "menu");
-  document.documentElement.classList.toggle("over", name === "over");
-  document.documentElement.classList.toggle("play", name === "play");
-}
 
 kaplay({
   width: 540,
@@ -55,112 +51,6 @@ kaplay({
 initPalette();
 initInput();
 
-const getBest = () => parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0;
-const setBest = (v) => localStorage.setItem(BEST_KEY, String(v));
-
-// =================================================================== MENU ==
-scene("menu", () => {
-  setScreen("menu");
-  const playBtn = document.getElementById("btn-play");
-  if (playBtn) playBtn.textContent = "PLAY";
-  camPos(vec2(W / 2, H / 2));
-  addStarfield();
-
-  add([
-    text("S U L L E N   S T U D I O", { size: 18 }),
-    pos(W / 2, 72),
-    anchor("center"),
-    color(COL.mint),
-    opacity(0.85),
-  ]);
-
-  const title = add([
-    text("MINT JUMP", { size: 64 }),
-    pos(W / 2, 210),
-    anchor("center"),
-    color(COL.mint),
-  ]);
-  title.onUpdate(() => {
-    title.pos.y = 210 + wave(-10, 10, time() * 1.4);
-  });
-
-  add([
-    text("an endless climber", { size: 20 }),
-    pos(W / 2, 272),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.6),
-  ]);
-
-  // decorative bouncing blob on a platform
-  add([
-    rect(PLAT_W, PLAT_H, { radius: 8 }),
-    pos(W / 2, 560),
-    anchor("center"),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-  ]);
-  const blob = add([
-    circle(PLAYER_R),
-    pos(W / 2, 470),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    rotate(0),
-  ]);
-  addFace(blob);
-  blob.onUpdate(() => {
-    const bounce = Math.abs(wave(0, 78, time() * 2.6));
-    blob.pos.y = 470 - bounce;
-    blob.angle = wave(-8, 8, time() * 2.6);
-  });
-
-  const best = getBest();
-  if (best > 0) {
-    add([
-      text(`BEST ${best}m`, { size: 22 }),
-      pos(W / 2, 640),
-      anchor("center"),
-      color(COL.spring),
-    ]);
-  }
-
-  const hint = add([
-    text("TAP OR PRESS SPACE", { size: 22 }),
-    pos(W / 2, 710),
-    anchor("center"),
-    color(COL.text),
-  ]);
-  hint.onUpdate(() => {
-    hint.opacity = wave(0.3, 1, time() * 3);
-  });
-
-  add([
-    text("steer with arrows / A D", { size: 16 }),
-    pos(W / 2, 780),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.55),
-  ]);
-  add([
-    text("on phone swipe left / right, or use the buttons", { size: 16 }),
-    pos(W / 2, 808),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.55),
-  ]);
-
-  let started = false;
-  const start = () => {
-    if (started) return;
-    started = true;
-    go("game");
-  };
-  registerPlayHandler(start);
-  onKeyPress("space", start);
-  onKeyPress("enter", start);
-  onMousePress(start);
-  onTouchStart(start);
-});
 
 // =================================================================== GAME ==
 scene("game", () => {
@@ -378,78 +268,11 @@ scene("game", () => {
 });
 
 // ============================================================== GAME OVER ==
-scene("gameover", ({ score, best, isNew }) => {
-  setScreen("over");
-  const playBtn = document.getElementById("btn-play");
-  if (playBtn) playBtn.textContent = "AGAIN";
-  camPos(vec2(W / 2, H / 2));
-  addStarfield();
 
-  add([
-    text("GAME OVER", { size: 52 }),
-    pos(W / 2, 250),
-    anchor("center"),
-    color(COL.danger),
-  ]);
-
-  add([
-    text(`${score}m`, { size: 84 }),
-    pos(W / 2, 370),
-    anchor("center"),
-    color(COL.text),
-  ]);
-
-  add([
-    text(`BEST ${best}m`, { size: 24 }),
-    pos(W / 2, 452),
-    anchor("center"),
-    color(COL.mint),
-  ]);
-
-  if (isNew) {
-    const badge = add([
-      text("NEW BEST!", { size: 26 }),
-      pos(W / 2, 512),
-      anchor("center"),
-      color(COL.spring),
-    ]);
-    badge.onUpdate(() => {
-      badge.opacity = wave(0.3, 1, time() * 5);
-    });
-  }
-
-  const hint = add([
-    text("TAP OR SPACE TO CLIMB AGAIN", { size: 18 }),
-    pos(W / 2, 650),
-    anchor("center"),
-    color(COL.text),
-  ]);
-  hint.onUpdate(() => {
-    hint.opacity = wave(0.3, 1, time() * 3);
-  });
-
-  add([
-    text("S U L L E N   S T U D I O", { size: 16 }),
-    pos(W / 2, 880),
-    anchor("center"),
-    color(COL.mint),
-    opacity(0.7),
-  ]);
-
-  let started = false;
-  const retry = () => {
-    if (started) return;
-    started = true;
-    go("game");
-  };
-  registerPlayHandler(retry);
-  onKeyPress("space", retry);
-  onKeyPress("enter", retry);
-  // small delay so a death-touch doesn't instantly restart
-  wait(0.4, () => {
-    onMousePress(retry);
-    onTouchStart(retry);
-  });
-});
+// Scenes are registered AFTER kaplay() and initPalette(), never at module
+// import time: a scene body references kaplay globals that do not exist until
+// kaplay() has run.
+registerMenuScene();
+registerGameoverScene();
 
 go("menu");
