@@ -22,13 +22,10 @@ import {
   bindSceneTouch,
   steerDir,
   fireDown,
+  isTouchDevice,
 } from "./input.js";
 
-const phone =
-  window.matchMedia("(pointer: coarse)").matches ||
-  "ontouchstart" in window ||
-  navigator.maxTouchPoints > 0;
-if (phone) document.documentElement.classList.add("phone");
+if (isTouchDevice) document.documentElement.classList.add("phone");
 
 function setScreen(name) {
   document.documentElement.classList.toggle("menu", name === "menu");
