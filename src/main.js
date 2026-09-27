@@ -12,6 +12,8 @@ import {
   PLAT_H,
   START_Y,
   BEST_KEY,
+  PLAYER_HP,
+  INVULN_TIME,
 } from "./config.js";
 import { COL, initPalette } from "./palette.js";
 import { DT } from "./frame.js";
@@ -24,6 +26,7 @@ import {
   fireDown,
   isTouchDevice,
 } from "./input.js";
+import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
 
@@ -51,23 +54,6 @@ const getBest = () => parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0;
 const setBest = (v) => localStorage.setItem(BEST_KEY, String(v));
 
 // -------------------------------------------------------------- decorators --
-// eyes / smile / cheeks shared by the menu blob and the player
-function addFace(blob) {
-  blob.add([circle(6), pos(-8, -7), color(COL.white)]);
-  blob.add([circle(6), pos(8, -7), color(COL.white)]);
-  const pl = blob.add([circle(2.8), pos(-8, -7), color(COL.dark)]);
-  const pr = blob.add([circle(2.8), pos(8, -7), color(COL.dark)]);
-  blob.add([
-    rect(10, 3, { radius: 1.5 }),
-    pos(0, 6),
-    anchor("center"),
-    color(COL.mintDark),
-  ]);
-  blob.add([circle(2.5), pos(-14, 1), color(COL.cheek), opacity(0.7)]);
-  blob.add([circle(2.5), pos(14, 1), color(COL.cheek), opacity(0.7)]);
-  return { pl, pr };
-}
-
 // parallax starfield, fixed to the screen but drifting with the camera
 function addStarfield() {
   for (let i = 0; i < 34; i++) {
@@ -210,33 +196,28 @@ scene("game", () => {
   let nextY = 0; // set below, after the base platform
 
   // ------------------------------------------------------------ player ---
-  const player = add([
-    circle(PLAYER_R),
-    pos(W / 2, START_Y),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    area(),
-    body({ maxVelocity: 1700 }),
-    scale(1),
-    rotate(0),
-    z(3),
-    "player",
-  ]);
-  const pupils = addFace(player);
-  player.vel = vec2(0, -JUMP_VEL);
+  const player = createPlayer();
+  const pupils = player.pupils;
+  const ghosts = createGhosts(player);
 
-  // ghost copies so the blob stays visible while wrapping around an edge
-  const ghostComps = () => [
-    circle(PLAYER_R),
-    pos(-100, -100),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    opacity(0.9),
-    rotate(0),
-    z(3),
-  ];
-  const ghostL = add(ghostComps());
-  const ghostR = add(ghostComps());
+  // Single writer for death: the scene reads `dead`, but player.js and
+  // world.js read player.dead. They must never disagree.
+  function markDead() {
+    dead = true;
+    player.dead = true;
+  }
+
+  // Every damage source funnels through here: knockback lives in
+  // takeHit(), the scene owns the feedback and the death transition.
+  function damagePlayer(amount, fromPos) {
+    if (!takeHit(player, amount, fromPos, time())) return; // i-frames ate it
+    shake(6);
+    if (player.hp <= 0) {
+      markDead();
+      shake(16);
+      wait(0.4, endRun);
+    }
+  }
 
   // ---------------------------------------------------------- platforms ---
   function addPlatform(x, y, kind) {
@@ -332,7 +313,7 @@ scene("game", () => {
         rotate(0),
         z(2),
         "hazard",
-        { t: rand(0, 6) },
+        { t: rand(0, 6), instantKill: true },
       ]);
       hole.add([circle(13), pos(0, 0), outline(3, COL.holeSwirl), opacity(0.8)]);
       hole.add([circle(5), pos(0, 0), color(COL.holeSwirl), opacity(0.9)]);
@@ -485,6 +466,9 @@ scene("game", () => {
     squashT = Math.max(0, squashT - d * 5);
     player.scale = vec2(1 + 0.22 * squashT, 1 - 0.26 * squashT);
 
+    // blink while invulnerable
+    player.opacity = player.isInvuln(time()) ? (Math.floor(time() * 20) % 2 ? 0.35 : 1) : 1;
+
     // wrap around screen edges
     if (player.pos.x < -PLAYER_R) player.pos.x += W + PLAYER_R * 2;
     else if (player.pos.x > W + PLAYER_R) player.pos.x -= W + PLAYER_R * 2;
@@ -508,26 +492,25 @@ scene("game", () => {
     prevFeet = feet;
   });
 
-  // hazards end the run on touch
+  // Black holes still kill outright; the drifting monster now deals damage.
   player.onCollide("hazard", (hz) => {
     if (dead) return;
-    dead = true;
-    shake(16);
-    player.vel = vec2(0, 0);
-    player.gravityScale = 0;
-    tween(player.pos, hz.pos, 0.4, (v) => (player.pos = v), easings.easeInQuad);
-    tween(
-      vec2(1, 1),
-      vec2(0.01, 0.01),
-      0.4,
-      (v) => (player.scale = v),
-      easings.easeInQuad,
-    );
-    wait(0.55, endRun);
+    if (hz.instantKill) {
+      markDead();
+      shake(16);
+      player.vel = vec2(0, 0);
+      player.gravityScale = 0;
+      tween(player.pos, hz.pos, 0.4, (v) => (player.pos = v), easings.easeInQuad);
+      tween(vec2(1, 1), vec2(0.01, 0.01), 0.4, (v) => (player.scale = v), easings.easeInQuad);
+      wait(0.55, endRun);
+      return;
+    }
+    damagePlayer(25, hz.pos);
   });
 
   // ------------------------------------------- camera / cleanup / death ---
   function endRun() {
+    markDead();
     const score = Math.floor(maxAlt / 50);
     const best = getBest();
     const isNew = score > best;
@@ -537,10 +520,7 @@ scene("game", () => {
 
   onUpdate(() => {
     // ghosts mirror the player across the wrap seam
-    ghostL.pos = vec2(player.pos.x - W, player.pos.y);
-    ghostR.pos = vec2(player.pos.x + W, player.pos.y);
-    ghostL.angle = ghostR.angle = player.angle;
-    ghostL.opacity = ghostR.opacity = dead ? 0 : 0.9;
+    ghosts.update();
     if (dead) return;
 
     // camera follows the jumper upward only
