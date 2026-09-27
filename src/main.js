@@ -15,6 +15,14 @@ import {
 } from "./config.js";
 import { COL, initPalette } from "./palette.js";
 import { DT } from "./frame.js";
+import {
+  initInput,
+  registerPlayHandler,
+  resetInput,
+  bindSceneTouch,
+  steerDir,
+  fireDown,
+} from "./input.js";
 
 const phone =
   window.matchMedia("(pointer: coarse)").matches ||
@@ -28,41 +36,6 @@ function setScreen(name) {
   document.documentElement.classList.toggle("play", name === "play");
 }
 
-let padDir = 0;
-let swipeDir = 0;
-let playHandler = null;
-let swipeStart = null;
-document.getElementById("game-wrap")?.addEventListener("pointerdown", (e) => {
-  swipeStart = { x: e.clientX, y: e.clientY };
-});
-document.getElementById("steer")?.addEventListener("pointerdown", (e) => {
-  const btn = e.target.closest("[data-dir]");
-  if (!btn) return;
-  e.preventDefault();
-  e.stopPropagation();
-  padDir = Number(btn.dataset.dir);
-});
-document.getElementById("steer")?.addEventListener("pointerup", () => {
-  padDir = 0;
-});
-document.getElementById("steer")?.addEventListener("pointercancel", () => {
-  padDir = 0;
-});
-window.addEventListener("pointerup", (e) => {
-  padDir = 0;
-  if (!swipeStart) return;
-  const dx = e.clientX - swipeStart.x;
-  const dy = e.clientY - swipeStart.y;
-  swipeStart = null;
-  if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy)) return;
-  swipeDir = Math.sign(dx);
-});
-document.getElementById("btn-play")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  playHandler?.();
-});
-
 kaplay({
   width: 540,
   height: 960,
@@ -75,6 +48,7 @@ kaplay({
 });
 
 initPalette();
+initInput();
 
 const getBest = () => parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0;
 const setBest = (v) => localStorage.setItem(BEST_KEY, String(v));
@@ -214,7 +188,7 @@ scene("menu", () => {
     started = true;
     go("game");
   };
-  playHandler = start;
+  registerPlayHandler(start);
   onKeyPress("space", start);
   onKeyPress("enter", start);
   onMousePress(start);
@@ -224,8 +198,8 @@ scene("menu", () => {
 // =================================================================== GAME ==
 scene("game", () => {
   setScreen("play");
-  padDir = 0;
-  swipeDir = 0;
+  resetInput();
+  bindSceneTouch();
   setGravity(GRAVITY);
   camPos(vec2(W / 2, H / 2));
   addStarfield();
@@ -237,8 +211,6 @@ scene("game", () => {
   let prevFeet = START_Y + PLAYER_R;
   let prevX = W / 2;
   let nextY = 0; // set below, after the base platform
-  const activeTouches = new Map(); // touch.identifier -> { startX, x }
-  let touchDir = 0;
 
   // ------------------------------------------------------------ player ---
   const player = add([
@@ -478,47 +450,6 @@ scene("game", () => {
     z(10),
   ]);
 
-  // -------------------------------------------------------------- input ---
-  function recalcTouchDir() {
-    if (activeTouches.size === 0) {
-      touchDir = 0;
-      return;
-    }
-    let sum = 0;
-    for (const t of activeTouches.values()) {
-      const dx = t.x - t.startX;
-      // a drag steers by its direction, a plain hold by screen half
-      sum += Math.abs(dx) >= 20 ? Math.sign(dx) : t.x < W / 2 ? -1 : 1;
-    }
-    touchDir = Math.sign(sum);
-  }
-  onTouchStart((pos, t) => {
-    activeTouches.set(t.identifier, { startX: pos.x, x: pos.x });
-    recalcTouchDir();
-  });
-  onTouchMove((pos, t) => {
-    const e = activeTouches.get(t.identifier);
-    if (e) {
-      e.x = pos.x;
-      recalcTouchDir();
-    }
-  });
-  onTouchEnd((pos, t) => {
-    activeTouches.delete(t.identifier);
-    recalcTouchDir();
-  });
-
-  function steerDir() {
-    let d = 0;
-    if (isKeyDown("left") || isKeyDown("a")) d -= 1;
-    if (isKeyDown("right") || isKeyDown("d")) d += 1;
-    if (padDir !== 0) d = padDir;
-    else if (swipeDir !== 0) d = swipeDir;
-    else if (touchDir !== 0) d = touchDir;
-    else if (!phone && isMouseDown("left")) d = mousePos().x < W / 2 ? -1 : 1;
-    return d;
-  }
-
   // ------------------------------------------------------------ landing ---
   function landOn(p) {
     squashT = 1;
@@ -706,7 +637,7 @@ scene("gameover", ({ score, best, isNew }) => {
     started = true;
     go("game");
   };
-  playHandler = retry;
+  registerPlayHandler(retry);
   onKeyPress("space", retry);
   onKeyPress("enter", retry);
   // small delay so a death-touch doesn't instantly restart

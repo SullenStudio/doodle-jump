@@ -64,8 +64,15 @@ html.phone.over #steer {
 
 #steer {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1.2fr 1fr;
   gap: 10px;
+}
+
+#steer button.fire {
+  border-color: #7a2418;
+  background: #3a1008;
+  color: #ffd9c9;
+  letter-spacing: 0.1em;
 }
 
 #steer button {
