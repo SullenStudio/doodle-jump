@@ -1,6 +1,7 @@
 import { GRUNT, HORDE, W, H } from "./config.js";
 import { DT } from "./frame.js";
 import { COL } from "./palette.js";
+import { sfx } from "./audio.js";
 
 const clamp01 = (t) => Math.max(0, Math.min(1, t));
 const ramp = (alt) => clamp01((alt - HORDE.startAlt) / (HORDE.fullAlt - HORDE.startAlt));
@@ -39,6 +40,7 @@ function addGrunt(x, y, player) {
   g.add([rect(6, 10), pos(4, -26), rotate(20), color(COL.monsterDark)]);
 
   g.die = () => {
+    sfx.demonDeath();
     g.onDeathCb?.(g);
     // brief pop, then gone
     const puff = add([
@@ -94,6 +96,7 @@ export function createHorde({ player, onDeath }) {
       const g = addGrunt(rand(40, W - 40), y, player);
       g.speed = hordeSpeed(alt);
       g.onDeathCb = onDeath;
+      sfx.growl(time());
     },
   };
 }

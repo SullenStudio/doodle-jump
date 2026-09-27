@@ -31,6 +31,7 @@ import { createArsenal } from "./weapons.js";
 import { addStarfield, createWorld } from "./world.js";
 import { createHorde } from "./demons.js";
 import { createHud } from "./hud.js";
+import { sfx } from "./audio.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
 
@@ -204,6 +205,7 @@ scene("game", () => {
   // takeHit(), the scene owns the feedback and the death transition.
   function damagePlayer(amount, fromPos) {
     if (!takeHit(player, amount, fromPos, time())) return; // i-frames ate it
+    sfx.hurt();
     shake(6);
     if (player.hp <= 0) {
       markDead();
@@ -221,8 +223,10 @@ scene("game", () => {
     if (p.kind === "spring") {
       player.vel.y = -SPRING_VEL;
       shake(5);
+      sfx.spring();
     } else {
       player.vel.y = -JUMP_VEL;
+      sfx.bounce();
     }
     if (p.kind === "breakable") {
       p.broken = true;
@@ -251,7 +255,10 @@ scene("game", () => {
 
     // fire straight down; recoil lifts the player
     arsenal.update();
-    if (fireDown()) arsenal.tryFire(player, time());
+    if (fireDown()) {
+      const id = arsenal.current.id;
+      if (arsenal.tryFire(player, time())) sfx.shoot(id);
+    }
 
     // squash & stretch recovery
     squashT = Math.max(0, squashT - d * 5);
@@ -309,6 +316,7 @@ scene("game", () => {
     if (p.kind === "medkit") player.heal(p.amount);
     else if (p.kind === "ammo") arsenal.give("scattergun", p.amount);
     else if (p.kind === "weapon") arsenal.give("scattergun", 24);
+    sfx.pickup();
     destroy(p);
   });
 
@@ -320,6 +328,7 @@ scene("game", () => {
 
   // ------------------------------------------- camera / cleanup / death ---
   function endRun() {
+    sfx.gameOver();
     markDead();
     const score = Math.floor(maxAlt / 50);
     const best = getBest();
@@ -346,6 +355,7 @@ scene("game", () => {
       weaponName: arsenal.current.name,
       altitude: Math.floor(maxAlt / 50),
     });
+    if (!dead && player.hp > 0 && player.hp < 25) sfx.heartbeat(time());
 
     world.ensure();
     horde.update(maxAlt);
