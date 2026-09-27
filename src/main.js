@@ -12,8 +12,6 @@ import {
   PLAT_H,
   START_Y,
   BEST_KEY,
-  PLAYER_HP,
-  INVULN_TIME,
 } from "./config.js";
 import { COL, initPalette } from "./palette.js";
 import { DT } from "./frame.js";
@@ -27,6 +25,7 @@ import {
   isTouchDevice,
 } from "./input.js";
 import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
+import { createArsenal } from "./weapons.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
 
@@ -199,6 +198,7 @@ scene("game", () => {
   const player = createPlayer();
   const pupils = player.pupils;
   const ghosts = createGhosts(player);
+  const arsenal = createArsenal();
 
   // Single writer for death: the scene reads `dead`, but player.js and
   // world.js read player.dead. They must never disagree.
@@ -462,6 +462,10 @@ scene("game", () => {
     pupils.pl.pos.x = -8 + look;
     pupils.pr.pos.x = 8 + look;
 
+    // fire straight down; recoil lifts the player
+    arsenal.update();
+    if (fireDown()) arsenal.tryFire(player, time());
+
     // squash & stretch recovery
     squashT = Math.max(0, squashT - d * 5);
     player.scale = vec2(1 + 0.22 * squashT, 1 - 0.26 * squashT);
@@ -508,6 +512,14 @@ scene("game", () => {
     damagePlayer(25, hz.pos);
   });
 
+  // Demons arrive in the next task; the handler is here so bullets are
+  // already lethal the moment they exist.
+  onCollide("bullet", "demon", (b, d) => {
+    destroy(b);
+    d.hp -= b.damage;
+    if (d.hp <= 0) d.die();
+  });
+
   // ------------------------------------------- camera / cleanup / death ---
   function endRun() {
     markDead();
@@ -538,6 +550,9 @@ scene("game", () => {
     const killY = camPos().y + H / 2 + 140;
     for (const p of get("platform")) if (p.pos.y > killY) destroy(p);
     for (const hz of get("hazard")) if (hz.pos.y > killY) destroy(hz);
+    for (const b of get("bullet")) {
+      if (b.pos.y > killY || b.pos.y < camPos().y - H) destroy(b);
+    }
 
     // fell below the screen
     if (player.pos.y - PLAYER_R > camPos().y + H / 2 + 60) endRun();
