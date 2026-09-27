@@ -12,6 +12,7 @@ import {
   PLAT_H,
   START_Y,
   BEST_KEY,
+  GRUNT,
 } from "./config.js";
 import { COL, initPalette } from "./palette.js";
 import { DT } from "./frame.js";
@@ -27,6 +28,7 @@ import {
 import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
 import { createArsenal } from "./weapons.js";
 import { addStarfield, createWorld } from "./world.js";
+import { createHorde } from "./demons.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
 
@@ -178,6 +180,7 @@ scene("game", () => {
   const ghosts = createGhosts(player);
   const arsenal = createArsenal();
   const world = createWorld({ player, onPlatform: null });
+  const horde = createHorde({ player, onDeath: null });
 
   // Single writer for death: the scene reads `dead`, but player.js and
   // world.js read player.dead. They must never disagree.
@@ -292,8 +295,11 @@ scene("game", () => {
     damagePlayer(25, hz.pos);
   });
 
-  // Demons arrive in the next task; the handler is here so bullets are
-  // already lethal the moment they exist.
+  player.onCollide("demon", (g) => {
+    if (dead) return;
+    damagePlayer(GRUNT.damage, g.pos); // same helper the hazards use
+  });
+
   onCollide("bullet", "demon", (b, d) => {
     destroy(b);
     d.hp -= b.damage;
@@ -325,6 +331,7 @@ scene("game", () => {
     scoreLabel.text = `${Math.floor(maxAlt / 50)}m`;
 
     world.ensure();
+    horde.update(maxAlt);
 
     // recycle what fell far below the camera
     const killY = camPos().y + H / 2 + 140;
@@ -332,6 +339,7 @@ scene("game", () => {
     for (const b of get("bullet")) {
       if (b.pos.y > killY || b.pos.y < camPos().y - H) destroy(b);
     }
+    for (const g of get("demon")) if (g.pos.y > killY) destroy(g);
 
     // fell below the screen
     if (player.pos.y - PLAYER_R > camPos().y + H / 2 + 60) endRun();
