@@ -32,14 +32,16 @@ Extracts every tuning constant and colour into kaplay-free modules and installs 
 - Create: `vitest.config.js`
 - Create: `src/config.js`
 - Create: `src/palette.js`
+- Create: `src/frame.js`
 - Modify: `src/main.js` (delete the inline `// tuning` and `// palette` blocks at lines 59-92, import from the new modules, call `initPalette()`)
 - Test: `test/config.test.js`
 
 **Interfaces:**
 - Consumes: nothing.
 - Produces:
-  - `src/config.js` — named exports: `W`, `H`, `GRAVITY`, `JUMP_VEL`, `SPRING_VEL`, `MOVE_SPEED`, `PLAYER_R`, `PLAT_W`, `PLAT_H`, `START_Y`, `BEST_KEY`, `RECOIL_CAP`, `BULLET_SPEED`, `PLAYER_HP`, `INVULN_TIME`, `WEAPONS`, `GRUNT`, `HORDE`, `DROP`.
+  - `src/config.js` — named exports: `W`, `H`, `GRAVITY`, `JUMP_VEL`, `SPRING_VEL`, `MOVE_SPEED`, `PLAYER_R`, `PLAT_W`, `PLAT_H`, `START_Y`, `BEST_KEY`, `RECOIL_CAP`, `BULLET_SPEED`, `PLAYER_HP`, `INVULN_TIME`, `KNOCKBACK`, `WEAPONS`, `GRUNT`, `HORDE`, `DROP`.
   - `src/palette.js` — named exports `COL` (object, empty until initialised) and `initPalette()` (fills `COL` in place; safe to call more than once).
+  - `src/frame.js` — named export `DT()`, the clamped per-frame delta. Every module imports this one; never redeclare it locally.
 
 - [ ] **Step 1: Install vitest**
 
@@ -136,6 +138,7 @@ export const RECOIL_CAP = 1500; // max upward speed reachable via recoil
 export const BULLET_SPEED = 1400; // px/s, always straight down
 export const PLAYER_HP = 100;
 export const INVULN_TIME = 0.8; // seconds of i-frames after a hit
+export const KNOCKBACK = { x: 380, y: 420 }; // push-away on taking a hit
 
 // Balance invariant enforced by test/config.test.js:
 //   impulse / cooldown < GRAVITY
@@ -243,6 +246,26 @@ export function initPalette() {
 }
 ```
 
+- [ ] **Step 8b: Create `src/frame.js`**
+
+`src/main.js` already defines this helper, and `world.js`, `demons.js` and
+`pickups.js` would each need it too. One copy, imported everywhere:
+
+```js
+// Clamped delta-time. The clamp stops a backgrounded tab's first frame after
+// refocus from teleporting entities straight through collision checks.
+export const DT = () => Math.min(dt(), 1 / 30);
+```
+
+`dt()` is called inside the function body, so this is safe at import time.
+
+In `src/main.js`, delete the local `const DT = () => Math.min(dt(), 1 / 30);`
+line and import it instead:
+
+```js
+import { DT } from "./frame.js";
+```
+
 - [ ] **Step 9: Rewire `src/main.js`**
 
 Delete the whole `// ---- tuning ---` block (the `const W` through `const BEST_KEY` lines) and the whole `const COL = {...}` block. Add at the top of the file, after `import "./mobile.css";`:
@@ -280,7 +303,7 @@ Run `npm run dev`, open the page. Expected: the menu appears with the bouncing m
 - [ ] **Step 11: Commit**
 
 ```bash
-git add package.json package-lock.json vitest.config.js src/config.js src/palette.js src/main.js test/config.test.js
+git add package.json package-lock.json vitest.config.js src/config.js src/palette.js src/frame.js src/main.js test/config.test.js
 git commit -m "refactor: extract config and palette modules, add vitest
 
 Palette is filled lazily by initPalette() because kaplay only injects
@@ -583,6 +606,7 @@ Extracts the player and its face into a module and gives it the HP state machine
   - `addFace(entity) -> { pl, pr }` — attaches eyes/smile/cheeks, returns the pupils
   - `createPlayer() -> entity` — the kaplay entity, tagged `"player"`, with extra members `hp`, `invulnUntil`, `pupils`, `hurt(amount, now)`, `heal(amount)`, `isInvuln(now)`
   - `createGhosts(player) -> { update() }` — the wrap-seam mirror copies
+  - `takeHit(player, amount, fromPos, now) -> boolean` — applies damage plus knockback away from `fromPos`; returns `false` when i-frames absorbed it. Used by BOTH the hazard and demon collision handlers so the knockback rule lives in one place.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -590,10 +614,67 @@ Create `test/player.test.js`:
 
 ```js
 import { describe, it, expect } from "vitest";
-import { applyDamage } from "../src/player.js";
-import { PLAYER_HP, INVULN_TIME } from "../src/config.js";
+import { applyDamage, takeHit } from "../src/player.js";
+import { PLAYER_HP, INVULN_TIME, KNOCKBACK } from "../src/config.js";
 
 const fresh = () => ({ hp: PLAYER_HP, invulnUntil: 0, dead: false });
+
+describe("takeHit", () => {
+  // takeHit only touches plain fields, so a stand-in stands in fine.
+  const fakePlayer = (hp = PLAYER_HP) => ({
+    hp,
+    invulnUntil: 0,
+    dead: false,
+    pos: { x: 100, y: 0 },
+    vel: { x: 0, y: 0 },
+    hurt(amount, now) {
+      const next = applyDamage(
+        { hp: this.hp, invulnUntil: this.invulnUntil, dead: this.dead },
+        amount,
+        now,
+      );
+      if (next.hp === this.hp && next.invulnUntil === this.invulnUntil) return false;
+      Object.assign(this, next);
+      return true;
+    },
+  });
+
+  it("knocks the player away from a source on its left", () => {
+    const p = fakePlayer();
+    expect(takeHit(p, 25, { x: 40 }, 0)).toBe(true);
+    expect(p.vel.x).toBe(KNOCKBACK.x); // pushed right
+    expect(p.vel.y).toBe(-KNOCKBACK.y); // and upward
+    expect(p.hp).toBe(75);
+  });
+
+  it("knocks the player away from a source on its right", () => {
+    const p = fakePlayer();
+    takeHit(p, 25, { x: 300 }, 0);
+    expect(p.vel.x).toBe(-KNOCKBACK.x);
+  });
+
+  it("pushes right when the source is exactly aligned, never zero", () => {
+    const p = fakePlayer();
+    takeHit(p, 25, { x: 100 }, 0);
+    expect(p.vel.x).toBe(KNOCKBACK.x);
+  });
+
+  it("never converts existing upward motion into a slower climb", () => {
+    const p = fakePlayer();
+    p.vel.y = -900; // already rising fast
+    takeHit(p, 25, { x: 40 }, 0);
+    expect(p.vel.y).toBe(-900);
+  });
+
+  it("returns false and leaves velocity alone during i-frames", () => {
+    const p = fakePlayer();
+    takeHit(p, 25, { x: 40 }, 0);
+    p.vel.x = 0;
+    expect(takeHit(p, 25, { x: 40 }, 0.2)).toBe(false);
+    expect(p.vel.x).toBe(0);
+    expect(p.hp).toBe(75);
+  });
+});
 
 describe("applyDamage", () => {
   it("subtracts damage and opens an i-frame window", () => {
@@ -640,7 +721,7 @@ Expected: FAIL — cannot resolve `../src/player.js`.
 
 ```js
 import { COL } from "./palette.js";
-import { PLAYER_R, PLAYER_HP, INVULN_TIME, START_Y, W, JUMP_VEL } from "./config.js";
+import { PLAYER_R, PLAYER_HP, INVULN_TIME, KNOCKBACK, START_Y, W, JUMP_VEL } from "./config.js";
 
 // Pure damage state machine. Time is a parameter so this is testable without
 // kaplay. Returns the SAME object when the hit is absorbed by i-frames, which
@@ -649,6 +730,17 @@ export function applyDamage(state, amount, now) {
   if (now < state.invulnUntil) return state;
   const hp = Math.max(0, state.hp - amount);
   return { hp, invulnUntil: now + INVULN_TIME, dead: hp <= 0 };
+}
+
+// One hit rule for every damage source (demons and drifting hazards alike).
+// Returns false when i-frames absorbed the hit, so callers can skip their
+// feedback. Death is the caller's business — it needs scene state.
+export function takeHit(player, amount, fromPos, now) {
+  if (!player.hurt(amount, now)) return false;
+  const away = Math.sign(player.pos.x - fromPos.x) || 1;
+  player.vel.x = away * KNOCKBACK.x;
+  player.vel.y = Math.min(player.vel.y, -KNOCKBACK.y);
+  return true;
 }
 
 // Eyes / pupils / smile / cheeks. Shared by the menu blob and the player.
@@ -737,7 +829,7 @@ export function createGhosts(player) {
 - [ ] **Step 4: Run the test to verify it passes**
 
 Run: `npm test`
-Expected: PASS — 5 player tests added.
+Expected: PASS — 10 player tests added.
 
 - [ ] **Step 5: Rewire `src/main.js`**
 
@@ -746,7 +838,7 @@ Delete the module-level `addFace` function and, in the `game` scene, the inline 
 Add to the imports:
 
 ```js
-import { createPlayer, createGhosts, addFace } from "./player.js";
+import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
 import { PLAYER_HP, INVULN_TIME } from "./config.js";
 ```
 
@@ -815,17 +907,26 @@ Replace the whole `player.onCollide("hazard", ...)` handler with:
       wait(0.55, endRun);
       return;
     }
-    if (!player.hurt(25, time())) return; // absorbed by i-frames
+    damagePlayer(25, hz.pos);
+  });
+```
+
+`damagePlayer` is the single place that turns a hit into feedback and,
+if it was fatal, into the end of the run. Add it to the `game` scene just
+below `markDead()`:
+
+```js
+  // Every damage source funnels through here: knockback lives in
+  // takeHit(), the scene owns the feedback and the death transition.
+  function damagePlayer(amount, fromPos) {
+    if (!takeHit(player, amount, fromPos, time())) return; // i-frames ate it
     shake(6);
-    const away = Math.sign(player.pos.x - hz.pos.x) || 1;
-    player.vel.x = away * 380;
-    player.vel.y = Math.min(player.vel.y, -420);
     if (player.hp <= 0) {
       markDead();
       shake(16);
       wait(0.4, endRun);
     }
-  });
+  }
 ```
 
 - [ ] **Step 8: Mark black holes as instant kills**
@@ -1170,7 +1271,7 @@ Pure extraction with one behavioural addition: an `onPlatform` callback so Task 
 - Modify: `src/main.js` (remove `addStarfield`, `addPlatform`, `addHazard`, `altitudeAt`, `rollKind`, `pickX`, `spawnRow`, `ensurePlatforms`)
 
 **Interfaces:**
-- Consumes: `COL` from `src/palette.js`; `W`, `H`, `PLAT_W`, `PLAT_H`, `START_Y`, `GRAVITY` from `src/config.js`.
+- Consumes: `COL` from `src/palette.js`; `W`, `H`, `PLAT_W`, `PLAT_H`, `START_Y`, `GRAVITY` from `src/config.js`; `DT` from `src/frame.js`.
 - Produces: `src/world.js` — named exports:
   - `rollKind(alt, r) -> "spring" | "moving" | "breakable" | "normal"` (pure; `r` is a 0..1 roll)
   - `altitudeAt(y) -> number` (pure)
@@ -1253,8 +1354,7 @@ Move `addStarfield`, `addPlatform`, `addHazard`, `pickX`, `spawnRow` and `ensure
 ```js
 import { COL } from "./palette.js";
 import { W, H, PLAT_W, PLAT_H, START_Y, GRAVITY } from "./config.js";
-
-const DT = () => Math.min(dt(), 1 / 30);
+import { DT } from "./frame.js";
 
 export const altitudeAt = (y) => Math.max(0, START_Y - y);
 
@@ -1485,7 +1585,7 @@ Grunts climb from below the camera toward the player. Shooting them down is both
 - Modify: `src/main.js` (create the horde, update it, handle demon contact)
 
 **Interfaces:**
-- Consumes: `GRUNT`, `HORDE`, `W`, `H` from `src/config.js`; `COL` from `src/palette.js`.
+- Consumes: `GRUNT`, `HORDE`, `W`, `H` from `src/config.js`; `COL` from `src/palette.js`; `DT` from `src/frame.js`.
 - Produces: `src/demons.js` — named exports:
   - `hordeSpeed(alt) -> number` (pure)
   - `spawnInterval(alt) -> number` seconds, `Infinity` below `HORDE.startAlt` (pure)
@@ -1561,9 +1661,8 @@ Expected: FAIL — cannot resolve `../src/demons.js`.
 
 ```js
 import { GRUNT, HORDE, W, H } from "./config.js";
+import { DT } from "./frame.js";
 import { COL } from "./palette.js";
-
-const DT = () => Math.min(dt(), 1 / 30);
 
 const clamp01 = (t) => Math.max(0, Math.min(1, t));
 const ramp = (alt) => clamp01((alt - HORDE.startAlt) / (HORDE.fullAlt - HORDE.startAlt));
@@ -1701,16 +1800,7 @@ Add alongside the hazard handler:
 ```js
   player.onCollide("demon", (g) => {
     if (dead) return;
-    if (!player.hurt(GRUNT.damage, time())) return; // absorbed by i-frames
-    shake(6);
-    const away = Math.sign(player.pos.x - g.pos.x) || 1;
-    player.vel.x = away * 380;
-    player.vel.y = Math.min(player.vel.y, -420);
-    if (player.hp <= 0) {
-      markDead();
-      shake(16);
-      wait(0.4, endRun);
-    }
+    damagePlayer(GRUNT.damage, g.pos); // same helper the hazards use
   });
 ```
 
@@ -1750,7 +1840,7 @@ Closes the resource loop: accurate shooting pays for itself through drops, missi
 - Modify: `src/main.js` (pass real `onPlatform` and `onDeath` callbacks, handle pickup collisions)
 
 **Interfaces:**
-- Consumes: `DROP`, `W` from `src/config.js`; `COL` from `src/palette.js`.
+- Consumes: `DROP`, `W` from `src/config.js`; `COL` from `src/palette.js`; `DT` from `src/frame.js`.
 - Produces: `src/pickups.js` — named exports:
   - `rollPlatformPickup(alt, rCrate, rMed, rWeapon) -> "ammo" | "medkit" | "weapon" | null` (pure)
   - `addPickup(kind, x, y)` — spawns an entity tagged `"pickup"` with `kind` and `amount`
@@ -1801,9 +1891,8 @@ Expected: FAIL — cannot resolve `../src/pickups.js`.
 
 ```js
 import { DROP } from "./config.js";
+import { DT } from "./frame.js";
 import { COL } from "./palette.js";
-
-const DT = () => Math.min(dt(), 1 / 30);
 
 // All three rolls are parameters so this stays pure. At most one pickup per
 // platform; ammo is checked first so it wins ties.
@@ -2388,7 +2477,7 @@ Then add each call:
     }
 ```
 
-- In the `player.onCollide("demon", ...)` and `player.onCollide("hazard", ...)` handlers, after a hit actually lands: `sfx.hurt();`.
+- In `damagePlayer()`, immediately after the `takeHit(...)` guard returns true: `sfx.hurt();`. Both the demon and hazard handlers route through it, so this is the only place it is needed.
 - In `player.onCollide("pickup", ...)`, before `destroy(p)`: `sfx.pickup();`.
 - In `endRun()`, as the first line: `sfx.gameOver();`.
 - In the scene `onUpdate`, right after the `hud.update({...})` call, add the low-health pulse:
@@ -2491,7 +2580,7 @@ Expected: well under 300 lines. It should now contain only: imports, the `phone`
 - [ ] **Step 4: Run the whole test suite**
 
 Run: `npm test`
-Expected: PASS. Counting the tests added across tasks: 4 config + 6 input + 5 player + 14 weapons + 8 world + 8 demons + 6 pickups + 3 hud + 4 audio = **58 tests**.
+Expected: PASS. Counting the tests added across tasks: 4 config + 6 input + 10 player + 14 weapons + 8 world + 8 demons + 6 pickups + 3 hud + 4 audio = **63 tests**.
 
 - [ ] **Step 5: Update `README.md`**
 
@@ -2577,7 +2666,7 @@ State plainly which of the ten manual checks in Step 6 passed and which did not.
 
 ## Phase 1 Definition of Done
 
-- `npm test` passes all 58 tests.
+- `npm test` passes all 63 tests.
 - `npm run build` succeeds.
 - `src/main.js` is under 300 lines and contains only bootstrap and scene wiring.
 - The player shoots downward, gets lifted by recoil, cannot achieve sustained flight, fights a horde rising from below, collects ammo and medkits, and sees health/ammo/altitude in a status bar with a health-reactive portrait.
