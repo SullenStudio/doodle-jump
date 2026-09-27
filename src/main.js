@@ -30,6 +30,7 @@ import { createPlayer, createGhosts, addFace, takeHit } from "./player.js";
 import { createArsenal } from "./weapons.js";
 import { addStarfield, createWorld } from "./world.js";
 import { createHorde } from "./demons.js";
+import { createHud } from "./hud.js";
 
 if (isTouchDevice) document.documentElement.classList.add("phone");
 
@@ -212,14 +213,7 @@ scene("game", () => {
   }
 
   // -------------------------------------------------------------- HUD -----
-  const scoreLabel = add([
-    text("0m", { size: 44 }),
-    pos(W / 2, 18),
-    anchor("top"),
-    color(COL.text),
-    fixed(),
-    z(10),
-  ]);
+  const hud = createHud();
 
   // ------------------------------------------------------------ landing ---
   function landOn(p) {
@@ -346,7 +340,12 @@ scene("game", () => {
     }
 
     maxAlt = Math.max(maxAlt, START_Y - player.pos.y);
-    scoreLabel.text = `${Math.floor(maxAlt / 50)}m`;
+    hud.update({
+      hp: player.hp,
+      ammo: arsenal.ammo,
+      weaponName: arsenal.current.name,
+      altitude: Math.floor(maxAlt / 50),
+    });
 
     world.ensure();
     horde.update(maxAlt);
