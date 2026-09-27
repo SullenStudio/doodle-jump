@@ -1,5 +1,6 @@
 import { WEAPONS, RECOIL_CAP, BULLET_SPEED, PLAYER_R } from "./config.js";
 import { COL } from "./palette.js";
+import { DT } from "./frame.js";
 
 // y grows downward, so an upward impulse SUBTRACTS from vel.y. The clamp is a
 // secondary safety: the primary guarantee against sustained flight is the
@@ -42,7 +43,7 @@ function spawnPellet(x, y, angleDeg, damage) {
     { vx, vy, damage },
   ]);
   b.onUpdate(() => {
-    const d = Math.min(dt(), 1 / 30);
+    const d = DT();
     b.pos.x += b.vx * d;
     b.pos.y += b.vy * d;
   });
@@ -88,7 +89,7 @@ export function createArsenal() {
     },
 
     update() {
-      if (cooldown > 0) cooldown -= Math.min(dt(), 1 / 30);
+      if (cooldown > 0) cooldown -= DT();
     },
   };
 
