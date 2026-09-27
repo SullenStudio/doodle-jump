@@ -1,5 +1,20 @@
 import kaplay from "kaplay";
 import "./mobile.css";
+import {
+  W,
+  H,
+  GRAVITY,
+  JUMP_VEL,
+  SPRING_VEL,
+  MOVE_SPEED,
+  PLAYER_R,
+  PLAT_W,
+  PLAT_H,
+  START_Y,
+  BEST_KEY,
+} from "./config.js";
+import { COL, initPalette } from "./palette.js";
+import { DT } from "./frame.js";
 
 const phone =
   window.matchMedia("(pointer: coarse)").matches ||
@@ -59,41 +74,7 @@ kaplay({
   touchToMouse: true,
 });
 
-// ---------------------------------------------------------------- tuning ---
-const W = 540;
-const H = 960;
-const GRAVITY = 2600;
-const JUMP_VEL = 1250; // ~300px max jump height
-const SPRING_VEL = 2050; // ~800px boost
-const MOVE_SPEED = 430;
-const PLAYER_R = 22;
-const PLAT_W = 96;
-const PLAT_H = 18;
-const START_Y = 827; // player spawn height (world coords, y grows downward)
-const BEST_KEY = "mintjump_best";
-
-// ---------------------------------------------------------------- palette --
-const COL = {
-  mint: rgb(10, 184, 118), // #0AB876
-  mintDark: rgb(6, 122, 82),
-  mintLight: rgb(94, 234, 212),
-  text: rgb(217, 255, 240),
-  wood: rgb(176, 122, 62),
-  woodDark: rgb(122, 79, 36),
-  spring: rgb(245, 158, 11),
-  springDark: rgb(180, 110, 10),
-  hole: rgb(167, 139, 250),
-  holeSwirl: rgb(196, 181, 253),
-  monster: rgb(239, 68, 68),
-  monsterDark: rgb(127, 29, 29),
-  white: rgb(255, 255, 255),
-  dark: rgb(9, 12, 11), // #090c0b
-  danger: rgb(255, 107, 107),
-  cheek: rgb(255, 170, 190),
-};
-
-// clamp dt so tab-switch spikes can't teleport the player to their death
-const DT = () => Math.min(dt(), 1 / 30);
+initPalette();
 
 const getBest = () => parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0;
 const setBest = (v) => localStorage.setItem(BEST_KEY, String(v));
