@@ -17,7 +17,8 @@ graphics are drawn shapes — zero external assets.
 | --- | --- |
 | `←` / `→` or `A` / `D` | steer the jumper |
 | hold left / right half of the screen | steer (touch) |
-| drag horizontally | steer (touch) |
+| left mouse button or `Space` | shoot downward |
+| `[FIRE]` button | shoot downward (touch) |
 | `Space` / tap | start, retry |
 
 The jumper bounces automatically when it lands on a platform and wraps around
@@ -31,8 +32,29 @@ the left/right screen edges.
 - **Mint with an orange spring** — spring platform, huge boost
 
 Higher up, platforms get sparser and moving/breakable ones get more common.
-Past ~2200px of altitude, **black holes** (they pull you in) and **monsters**
-start appearing — touching either ends the run.
+Past ~2200px of altitude, **black holes** start appearing — they pull you in,
+and touching one ends the run instantly.
+
+## Weapons
+
+You shoot **downward**, and the recoil lifts you. Every weapon obeys
+`impulse / cooldown < GRAVITY`, so holding fire slows your fall by about half
+but can never produce sustained flight — you still need platforms.
+
+- **SIDEARM** — infinite ammo, one pellet, a gentle kick
+- **SCATTERGUN** — 24 rounds, five pellets in a cone, a real boost
+
+Run out of ammo and you drop back to the SIDEARM automatically.
+
+## Demons
+
+**GRUNTS** climb toward you from below the screen, getting faster and more
+frequent with altitude. Shooting downward kills them and pushes you up at the
+same time — one action solves both problems. Touching one costs 25 health and
+knocks you sideways; you get a moment of invulnerability afterwards.
+
+Ammo crates and medkits sit on platforms, and grunts drop ammo when they die.
+Accurate shooting pays for itself; spraying does not.
 
 Score is height climbed in meters. Your best height is saved in
 `localStorage`.

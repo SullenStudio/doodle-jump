@@ -1,52 +1,41 @@
 import kaplay from "kaplay";
 import "./mobile.css";
+import {
+  W,
+  H,
+  GRAVITY,
+  JUMP_VEL,
+  SPRING_VEL,
+  MOVE_SPEED,
+  PLAYER_R,
+  PLAT_W,
+  PLAT_H,
+  START_Y,
+  GRUNT,
+} from "./config.js";
+import { rollPlatformPickup, addPickup, dropFromDemon } from "./pickups.js";
+import { initPalette } from "./palette.js";
+import { DT } from "./frame.js";
+import {
+  initInput,
+  resetInput,
+  bindSceneTouch,
+  steerDir,
+  fireDown,
+  isTouchDevice,
+} from "./input.js";
+import { createPlayer, createGhosts, takeHit } from "./player.js";
+import { createArsenal } from "./weapons.js";
+import { addStarfield, createWorld } from "./world.js";
+import { createHorde } from "./demons.js";
+import { createHud } from "./hud.js";
+import { sfx } from "./audio.js";
+import { getBest, setBest } from "./best.js";
+import { setScreen } from "./screen.js";
+import { registerMenuScene } from "./scenes/menu.js";
+import { registerGameoverScene } from "./scenes/gameover.js";
 
-const phone =
-  window.matchMedia("(pointer: coarse)").matches ||
-  "ontouchstart" in window ||
-  navigator.maxTouchPoints > 0;
-if (phone) document.documentElement.classList.add("phone");
-
-function setScreen(name) {
-  document.documentElement.classList.toggle("menu", name === "menu");
-  document.documentElement.classList.toggle("over", name === "over");
-  document.documentElement.classList.toggle("play", name === "play");
-}
-
-let padDir = 0;
-let swipeDir = 0;
-let playHandler = null;
-let swipeStart = null;
-document.getElementById("game-wrap")?.addEventListener("pointerdown", (e) => {
-  swipeStart = { x: e.clientX, y: e.clientY };
-});
-document.getElementById("steer")?.addEventListener("pointerdown", (e) => {
-  const btn = e.target.closest("[data-dir]");
-  if (!btn) return;
-  e.preventDefault();
-  e.stopPropagation();
-  padDir = Number(btn.dataset.dir);
-});
-document.getElementById("steer")?.addEventListener("pointerup", () => {
-  padDir = 0;
-});
-document.getElementById("steer")?.addEventListener("pointercancel", () => {
-  padDir = 0;
-});
-window.addEventListener("pointerup", (e) => {
-  padDir = 0;
-  if (!swipeStart) return;
-  const dx = e.clientX - swipeStart.x;
-  const dy = e.clientY - swipeStart.y;
-  swipeStart = null;
-  if (Math.abs(dx) < 28 || Math.abs(dx) < Math.abs(dy)) return;
-  swipeDir = Math.sign(dx);
-});
-document.getElementById("btn-play")?.addEventListener("click", (e) => {
-  e.preventDefault();
-  e.stopPropagation();
-  playHandler?.();
-});
+if (isTouchDevice) document.documentElement.classList.add("phone");
 
 kaplay({
   width: 540,
@@ -59,192 +48,15 @@ kaplay({
   touchToMouse: true,
 });
 
-// ---------------------------------------------------------------- tuning ---
-const W = 540;
-const H = 960;
-const GRAVITY = 2600;
-const JUMP_VEL = 1250; // ~300px max jump height
-const SPRING_VEL = 2050; // ~800px boost
-const MOVE_SPEED = 430;
-const PLAYER_R = 22;
-const PLAT_W = 96;
-const PLAT_H = 18;
-const START_Y = 827; // player spawn height (world coords, y grows downward)
-const BEST_KEY = "mintjump_best";
+initPalette();
+initInput();
 
-// ---------------------------------------------------------------- palette --
-const COL = {
-  mint: rgb(10, 184, 118), // #0AB876
-  mintDark: rgb(6, 122, 82),
-  mintLight: rgb(94, 234, 212),
-  text: rgb(217, 255, 240),
-  wood: rgb(176, 122, 62),
-  woodDark: rgb(122, 79, 36),
-  spring: rgb(245, 158, 11),
-  springDark: rgb(180, 110, 10),
-  hole: rgb(167, 139, 250),
-  holeSwirl: rgb(196, 181, 253),
-  monster: rgb(239, 68, 68),
-  monsterDark: rgb(127, 29, 29),
-  white: rgb(255, 255, 255),
-  dark: rgb(9, 12, 11), // #090c0b
-  danger: rgb(255, 107, 107),
-  cheek: rgb(255, 170, 190),
-};
-
-// clamp dt so tab-switch spikes can't teleport the player to their death
-const DT = () => Math.min(dt(), 1 / 30);
-
-const getBest = () => parseInt(localStorage.getItem(BEST_KEY) || "0", 10) || 0;
-const setBest = (v) => localStorage.setItem(BEST_KEY, String(v));
-
-// -------------------------------------------------------------- decorators --
-// eyes / smile / cheeks shared by the menu blob and the player
-function addFace(blob) {
-  blob.add([circle(6), pos(-8, -7), color(COL.white)]);
-  blob.add([circle(6), pos(8, -7), color(COL.white)]);
-  const pl = blob.add([circle(2.8), pos(-8, -7), color(COL.dark)]);
-  const pr = blob.add([circle(2.8), pos(8, -7), color(COL.dark)]);
-  blob.add([
-    rect(10, 3, { radius: 1.5 }),
-    pos(0, 6),
-    anchor("center"),
-    color(COL.mintDark),
-  ]);
-  blob.add([circle(2.5), pos(-14, 1), color(COL.cheek), opacity(0.7)]);
-  blob.add([circle(2.5), pos(14, 1), color(COL.cheek), opacity(0.7)]);
-  return { pl, pr };
-}
-
-// parallax starfield, fixed to the screen but drifting with the camera
-function addStarfield() {
-  for (let i = 0; i < 34; i++) {
-    const star = add([
-      circle(rand(1, 2.6)),
-      pos(rand(0, W), rand(0, H)),
-      color(COL.mint),
-      opacity(rand(0.05, 0.18)),
-      fixed(),
-      z(1),
-      { f: rand(0.15, 0.45), by: rand(0, H + 60) },
-    ]);
-    star.onUpdate(() => {
-      const camY = camPos().y - H / 2;
-      star.pos.y =
-        (((star.by + camY * star.f) % (H + 60)) + H + 60) % (H + 60) - 30;
-    });
-  }
-}
-
-// =================================================================== MENU ==
-scene("menu", () => {
-  setScreen("menu");
-  const playBtn = document.getElementById("btn-play");
-  if (playBtn) playBtn.textContent = "PLAY";
-  camPos(vec2(W / 2, H / 2));
-  addStarfield();
-
-  add([
-    text("S U L L E N   S T U D I O", { size: 18 }),
-    pos(W / 2, 72),
-    anchor("center"),
-    color(COL.mint),
-    opacity(0.85),
-  ]);
-
-  const title = add([
-    text("MINT JUMP", { size: 64 }),
-    pos(W / 2, 210),
-    anchor("center"),
-    color(COL.mint),
-  ]);
-  title.onUpdate(() => {
-    title.pos.y = 210 + wave(-10, 10, time() * 1.4);
-  });
-
-  add([
-    text("an endless climber", { size: 20 }),
-    pos(W / 2, 272),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.6),
-  ]);
-
-  // decorative bouncing blob on a platform
-  add([
-    rect(PLAT_W, PLAT_H, { radius: 8 }),
-    pos(W / 2, 560),
-    anchor("center"),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-  ]);
-  const blob = add([
-    circle(PLAYER_R),
-    pos(W / 2, 470),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    rotate(0),
-  ]);
-  addFace(blob);
-  blob.onUpdate(() => {
-    const bounce = Math.abs(wave(0, 78, time() * 2.6));
-    blob.pos.y = 470 - bounce;
-    blob.angle = wave(-8, 8, time() * 2.6);
-  });
-
-  const best = getBest();
-  if (best > 0) {
-    add([
-      text(`BEST ${best}m`, { size: 22 }),
-      pos(W / 2, 640),
-      anchor("center"),
-      color(COL.spring),
-    ]);
-  }
-
-  const hint = add([
-    text("TAP OR PRESS SPACE", { size: 22 }),
-    pos(W / 2, 710),
-    anchor("center"),
-    color(COL.text),
-  ]);
-  hint.onUpdate(() => {
-    hint.opacity = wave(0.3, 1, time() * 3);
-  });
-
-  add([
-    text("steer with arrows / A D", { size: 16 }),
-    pos(W / 2, 780),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.55),
-  ]);
-  add([
-    text("on phone swipe left / right, or use the buttons", { size: 16 }),
-    pos(W / 2, 808),
-    anchor("center"),
-    color(COL.text),
-    opacity(0.55),
-  ]);
-
-  let started = false;
-  const start = () => {
-    if (started) return;
-    started = true;
-    go("game");
-  };
-  playHandler = start;
-  onKeyPress("space", start);
-  onKeyPress("enter", start);
-  onMousePress(start);
-  onTouchStart(start);
-});
 
 // =================================================================== GAME ==
 scene("game", () => {
   setScreen("play");
-  padDir = 0;
-  swipeDir = 0;
+  resetInput();
+  bindSceneTouch();
   setGravity(GRAVITY);
   camPos(vec2(W / 2, H / 2));
   addStarfield();
@@ -254,289 +66,46 @@ scene("game", () => {
   let maxAlt = 0;
   let squashT = 0;
   let prevFeet = START_Y + PLAYER_R;
-  let prevX = W / 2;
-  let nextY = 0; // set below, after the base platform
-  const activeTouches = new Map(); // touch.identifier -> { startX, x }
-  let touchDir = 0;
 
   // ------------------------------------------------------------ player ---
-  const player = add([
-    circle(PLAYER_R),
-    pos(W / 2, START_Y),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    area(),
-    body({ maxVelocity: 1700 }),
-    scale(1),
-    rotate(0),
-    z(3),
-    "player",
-  ]);
-  const pupils = addFace(player);
-  player.vel = vec2(0, -JUMP_VEL);
+  const player = createPlayer();
+  const pupils = player.pupils;
+  const ghosts = createGhosts(player);
+  const arsenal = createArsenal();
+  const world = createWorld({
+    player,
+    onPlatform: (p, alt) => {
+      const kind = rollPlatformPickup(alt, rand(1), rand(1), rand(1));
+      if (kind) addPickup(kind, p.pos.x, p.pos.y - PLAT_H / 2 - 14);
+    },
+  });
+  const horde = createHorde({
+    player,
+    onDeath: (g) => dropFromDemon(g, rand(1), rand(1)),
+  });
 
-  // ghost copies so the blob stays visible while wrapping around an edge
-  const ghostComps = () => [
-    circle(PLAYER_R),
-    pos(-100, -100),
-    color(COL.mint),
-    outline(3, COL.mintDark),
-    opacity(0.9),
-    rotate(0),
-    z(3),
-  ];
-  const ghostL = add(ghostComps());
-  const ghostR = add(ghostComps());
-
-  // ---------------------------------------------------------- platforms ---
-  function addPlatform(x, y, kind) {
-    const p = add([
-      rect(PLAT_W, PLAT_H, { radius: 8 }),
-      pos(x, y),
-      anchor("center"),
-      color(
-        kind === "moving"
-          ? COL.mintLight
-          : kind === "breakable"
-            ? COL.wood
-            : COL.mint,
-      ),
-      outline(
-        3,
-        kind === "moving"
-          ? COL.mint
-          : kind === "breakable"
-            ? COL.woodDark
-            : COL.mintDark,
-      ),
-      opacity(1),
-      rotate(0),
-      z(2),
-      "platform",
-      { kind, broken: false, dir: choose([-1, 1]), speed: 0, fallV: 0, spin: 0 },
-    ]);
-
-    if (kind === "moving") {
-      p.add([circle(2.5), pos(-13, 0), color(COL.mintDark)]);
-      p.add([circle(2.5), pos(13, 0), color(COL.mintDark)]);
-    } else if (kind === "breakable") {
-      p.add([
-        rect(2.5, PLAT_H - 6),
-        pos(-12, 0),
-        anchor("center"),
-        rotate(18),
-        color(COL.woodDark),
-      ]);
-      p.add([
-        rect(2.5, PLAT_H - 8),
-        pos(9, 0),
-        anchor("center"),
-        rotate(-14),
-        color(COL.woodDark),
-      ]);
-    } else if (kind === "spring") {
-      p.add([rect(6, 8), pos(0, -12), anchor("center"), color(COL.spring)]);
-      p.add([
-        rect(24, 6, { radius: 3 }),
-        pos(0, -18),
-        anchor("center"),
-        color(COL.spring),
-        outline(2, COL.springDark),
-      ]);
-    }
-
-    p.onUpdate(() => {
-      if (p.broken) {
-        // falls away after one bounce
-        p.fallV += GRAVITY * DT();
-        p.pos.y += p.fallV * DT();
-        p.angle += p.spin * DT();
-        p.opacity -= 2.2 * DT();
-        if (p.opacity <= 0) destroy(p);
-      } else if (p.kind === "moving") {
-        p.pos.x += p.dir * p.speed * DT();
-        if (p.pos.x < PLAT_W / 2) {
-          p.pos.x = PLAT_W / 2;
-          p.dir = 1;
-        } else if (p.pos.x > W - PLAT_W / 2) {
-          p.pos.x = W - PLAT_W / 2;
-          p.dir = -1;
-        }
-      }
-    });
-    return p;
+  // Single writer for death: the scene reads `dead`, but player.js and
+  // world.js read player.dead. They must never disagree.
+  function markDead() {
+    dead = true;
+    player.dead = true;
   }
 
-  // ------------------------------------------------------------ hazards ---
-  function addHazard(x, y) {
-    if (rand() < 0.5) {
-      // black hole: pulls the jumper in, ends the run on touch
-      const hole = add([
-        circle(24),
-        pos(x, y),
-        anchor("center"),
-        color(rgb(0, 0, 0)),
-        outline(4, COL.hole),
-        area(),
-        scale(1),
-        rotate(0),
-        z(2),
-        "hazard",
-        { t: rand(0, 6) },
-      ]);
-      hole.add([circle(13), pos(0, 0), outline(3, COL.holeSwirl), opacity(0.8)]);
-      hole.add([circle(5), pos(0, 0), color(COL.holeSwirl), opacity(0.9)]);
-      hole.onUpdate(() => {
-        hole.t += DT();
-        hole.angle += 140 * DT();
-        const s = 1 + 0.09 * Math.sin(hole.t * 3.2);
-        hole.scale = vec2(s, s);
-        if (!dead && hole.pos.dist(player.pos) < 150) {
-          player.pos = player.pos.lerp(hole.pos, 0.55 * DT());
-        }
-      });
-    } else {
-      // monster: drifts side to side, ends the run on touch
-      const m = add([
-        circle(24),
-        pos(x, y),
-        anchor("center"),
-        color(COL.monster),
-        outline(3, COL.monsterDark),
-        area(),
-        z(2),
-        "hazard",
-        {
-          baseX: x,
-          baseY: y,
-          t: rand(0, 6),
-          amp: rand(40, 100),
-          spd: rand(0.9, 1.7),
-        },
-      ]);
-      m.add([circle(6), pos(-9, -6), color(COL.white)]);
-      m.add([circle(6), pos(9, -6), color(COL.white)]);
-      m.add([circle(3), pos(-9, -6), color(COL.dark)]);
-      m.add([circle(3), pos(9, -6), color(COL.dark)]);
-      m.add([rect(6, 8), pos(-8, 12), color(COL.white)]);
-      m.add([rect(6, 8), pos(2, 12), color(COL.white)]);
-      m.add([rect(6, 10), pos(-10, -26), rotate(-20), color(COL.monsterDark)]);
-      m.add([rect(6, 10), pos(4, -26), rotate(20), color(COL.monsterDark)]);
-      m.onUpdate(() => {
-        m.t += DT();
-        m.pos.x = clamp(m.baseX + Math.sin(m.t * m.spd) * m.amp, 28, W - 28);
-        m.pos.y = m.baseY + Math.sin(m.t * 2.3) * 10;
-      });
-    }
-  }
-
-  // --------------------------------------------------------- generation ---
-  const altitudeAt = (y) => Math.max(0, START_Y - y);
-
-  function rollKind(a) {
-    const r = rand(1);
-    const pSpring = a < 250 ? 0 : 0.09;
-    const pMoving = a < 500 ? 0 : Math.min(0.38, 0.06 + a / 16000);
-    const pBreak = a < 1100 ? 0 : Math.min(0.3, 0.04 + a / 18000);
-    if (r < pSpring) return "spring";
-    if (r < pSpring + pMoving) return "moving";
-    if (r < pSpring + pMoving + pBreak) return "breakable";
-    return "normal";
-  }
-
-  function pickX(a) {
-    const maxDx = Math.min(250, 140 + a / 90);
-    let x = prevX + rand(-maxDx, maxDx);
-    const lo = 50;
-    const hi = W - 50;
-    while (x < lo) x += hi - lo;
-    while (x > hi) x -= hi - lo;
-    return x;
-  }
-
-  function spawnRow(y) {
-    const a = altitudeAt(y);
-    const kind = rollKind(a);
-    const x = pickX(a);
-    const p = addPlatform(x, y, kind);
-    if (kind === "moving") p.speed = 90 + Math.min(130, a / 150) + rand(-15, 15);
-    prevX = x;
-
-    // an extra easy platform low down
-    if (a < 1600 && rand() < 0.28) {
-      const x2 = rand(60, W - 60);
-      let d = Math.abs(x2 - x);
-      d = Math.min(d, W - d);
-      if (d > 150) addPlatform(x2, y + rand(-10, 10), "normal");
-    }
-
-    // hazards appear at altitude
-    if (a > 2200) {
-      const chance = Math.min(0.14, 0.03 + (a - 2200) / 22000);
-      if (rand() < chance) addHazard(rand(50, W - 50), y - rand(80, 160));
-    }
-  }
-
-  function ensurePlatforms() {
-    const camTop = camPos().y - H / 2;
-    while (nextY > camTop - 140) {
-      spawnRow(nextY);
-      const a = altitudeAt(nextY);
-      const gapMax = Math.min(150, 84 + a / 120);
-      nextY -= rand(52, gapMax);
+  // Every damage source funnels through here: knockback lives in
+  // takeHit(), the scene owns the feedback and the death transition.
+  function damagePlayer(amount, fromPos) {
+    if (!takeHit(player, amount, fromPos, time())) return; // i-frames ate it
+    sfx.hurt();
+    shake(6);
+    if (player.hp <= 0) {
+      markDead();
+      shake(16);
+      wait(0.4, endRun);
     }
   }
 
   // -------------------------------------------------------------- HUD -----
-  const scoreLabel = add([
-    text("0m", { size: 44 }),
-    pos(W / 2, 18),
-    anchor("top"),
-    color(COL.text),
-    fixed(),
-    z(10),
-  ]);
-
-  // -------------------------------------------------------------- input ---
-  function recalcTouchDir() {
-    if (activeTouches.size === 0) {
-      touchDir = 0;
-      return;
-    }
-    let sum = 0;
-    for (const t of activeTouches.values()) {
-      const dx = t.x - t.startX;
-      // a drag steers by its direction, a plain hold by screen half
-      sum += Math.abs(dx) >= 20 ? Math.sign(dx) : t.x < W / 2 ? -1 : 1;
-    }
-    touchDir = Math.sign(sum);
-  }
-  onTouchStart((pos, t) => {
-    activeTouches.set(t.identifier, { startX: pos.x, x: pos.x });
-    recalcTouchDir();
-  });
-  onTouchMove((pos, t) => {
-    const e = activeTouches.get(t.identifier);
-    if (e) {
-      e.x = pos.x;
-      recalcTouchDir();
-    }
-  });
-  onTouchEnd((pos, t) => {
-    activeTouches.delete(t.identifier);
-    recalcTouchDir();
-  });
-
-  function steerDir() {
-    let d = 0;
-    if (isKeyDown("left") || isKeyDown("a")) d -= 1;
-    if (isKeyDown("right") || isKeyDown("d")) d += 1;
-    if (padDir !== 0) d = padDir;
-    else if (swipeDir !== 0) d = swipeDir;
-    else if (touchDir !== 0) d = touchDir;
-    else if (!phone && isMouseDown("left")) d = mousePos().x < W / 2 ? -1 : 1;
-    return d;
-  }
+  const hud = createHud();
 
   // ------------------------------------------------------------ landing ---
   function landOn(p) {
@@ -544,8 +113,10 @@ scene("game", () => {
     if (p.kind === "spring") {
       player.vel.y = -SPRING_VEL;
       shake(5);
+      sfx.spring();
     } else {
       player.vel.y = -JUMP_VEL;
+      sfx.bounce();
     }
     if (p.kind === "breakable") {
       p.broken = true;
@@ -572,9 +143,19 @@ scene("game", () => {
     pupils.pl.pos.x = -8 + look;
     pupils.pr.pos.x = 8 + look;
 
+    // fire straight down; recoil lifts the player
+    arsenal.update();
+    if (fireDown()) {
+      const id = arsenal.current.id;
+      if (arsenal.tryFire(player, time())) sfx.shoot(id);
+    }
+
     // squash & stretch recovery
     squashT = Math.max(0, squashT - d * 5);
     player.scale = vec2(1 + 0.22 * squashT, 1 - 0.26 * squashT);
+
+    // blink while invulnerable
+    player.opacity = player.isInvuln(time()) ? (Math.floor(time() * 20) % 2 ? 0.35 : 1) : 1;
 
     // wrap around screen edges
     if (player.pos.x < -PLAYER_R) player.pos.x += W + PLAYER_R * 2;
@@ -599,26 +180,46 @@ scene("game", () => {
     prevFeet = feet;
   });
 
-  // hazards end the run on touch
+  // Black holes still kill outright; the drifting monster now deals damage.
   player.onCollide("hazard", (hz) => {
     if (dead) return;
-    dead = true;
-    shake(16);
-    player.vel = vec2(0, 0);
-    player.gravityScale = 0;
-    tween(player.pos, hz.pos, 0.4, (v) => (player.pos = v), easings.easeInQuad);
-    tween(
-      vec2(1, 1),
-      vec2(0.01, 0.01),
-      0.4,
-      (v) => (player.scale = v),
-      easings.easeInQuad,
-    );
-    wait(0.55, endRun);
+    if (hz.instantKill) {
+      markDead();
+      shake(16);
+      player.vel = vec2(0, 0);
+      player.gravityScale = 0;
+      tween(player.pos, hz.pos, 0.4, (v) => (player.pos = v), easings.easeInQuad);
+      tween(vec2(1, 1), vec2(0.01, 0.01), 0.4, (v) => (player.scale = v), easings.easeInQuad);
+      wait(0.55, endRun);
+      return;
+    }
+    damagePlayer(25, hz.pos);
+  });
+
+  player.onCollide("demon", (g) => {
+    if (dead) return;
+    damagePlayer(GRUNT.damage, g.pos); // same helper the hazards use
+  });
+
+  player.onCollide("pickup", (p) => {
+    if (dead) return;
+    if (p.kind === "medkit") player.heal(p.amount);
+    else if (p.kind === "ammo") arsenal.give("scattergun", p.amount);
+    else if (p.kind === "weapon") arsenal.give("scattergun", 24);
+    sfx.pickup();
+    destroy(p);
+  });
+
+  onCollide("bullet", "demon", (b, d) => {
+    destroy(b);
+    d.hp -= b.damage;
+    if (d.hp <= 0) d.die();
   });
 
   // ------------------------------------------- camera / cleanup / death ---
   function endRun() {
+    sfx.gameOver();
+    markDead();
     const score = Math.floor(maxAlt / 50);
     const best = getBest();
     const isNew = score > best;
@@ -628,10 +229,7 @@ scene("game", () => {
 
   onUpdate(() => {
     // ghosts mirror the player across the wrap seam
-    ghostL.pos = vec2(player.pos.x - W, player.pos.y);
-    ghostR.pos = vec2(player.pos.x + W, player.pos.y);
-    ghostL.angle = ghostR.angle = player.angle;
-    ghostL.opacity = ghostR.opacity = dead ? 0 : 0.9;
+    ghosts.update();
     if (dead) return;
 
     // camera follows the jumper upward only
@@ -641,98 +239,40 @@ scene("game", () => {
     }
 
     maxAlt = Math.max(maxAlt, START_Y - player.pos.y);
-    scoreLabel.text = `${Math.floor(maxAlt / 50)}m`;
+    hud.update({
+      hp: player.hp,
+      ammo: arsenal.ammo,
+      weaponName: arsenal.current.name,
+      altitude: Math.floor(maxAlt / 50),
+    });
+    if (!dead && player.hp > 0 && player.hp < 25) sfx.heartbeat(time());
 
-    ensurePlatforms();
+    world.ensure();
+    horde.update(maxAlt);
 
     // recycle what fell far below the camera
     const killY = camPos().y + H / 2 + 140;
-    for (const p of get("platform")) if (p.pos.y > killY) destroy(p);
-    for (const hz of get("hazard")) if (hz.pos.y > killY) destroy(hz);
+    world.recycle(killY);
+    for (const b of get("bullet")) {
+      if (b.pos.y > killY || b.pos.y < camPos().y - H) destroy(b);
+    }
+    for (const g of get("demon")) if (g.pos.y > killY) destroy(g);
+    for (const p of get("pickup")) if (p.pos.y > killY) destroy(p);
 
     // fell below the screen
     if (player.pos.y - PLAYER_R > camPos().y + H / 2 + 60) endRun();
   });
 
   // -------------------------------------------------------------- start ---
-  addPlatform(W / 2, 880, "normal"); // base platform under the jumper
-  nextY = 880 - rand(60, 80);
-  ensurePlatforms();
+  world.start();
 });
 
 // ============================================================== GAME OVER ==
-scene("gameover", ({ score, best, isNew }) => {
-  setScreen("over");
-  const playBtn = document.getElementById("btn-play");
-  if (playBtn) playBtn.textContent = "AGAIN";
-  camPos(vec2(W / 2, H / 2));
-  addStarfield();
 
-  add([
-    text("GAME OVER", { size: 52 }),
-    pos(W / 2, 250),
-    anchor("center"),
-    color(COL.danger),
-  ]);
-
-  add([
-    text(`${score}m`, { size: 84 }),
-    pos(W / 2, 370),
-    anchor("center"),
-    color(COL.text),
-  ]);
-
-  add([
-    text(`BEST ${best}m`, { size: 24 }),
-    pos(W / 2, 452),
-    anchor("center"),
-    color(COL.mint),
-  ]);
-
-  if (isNew) {
-    const badge = add([
-      text("NEW BEST!", { size: 26 }),
-      pos(W / 2, 512),
-      anchor("center"),
-      color(COL.spring),
-    ]);
-    badge.onUpdate(() => {
-      badge.opacity = wave(0.3, 1, time() * 5);
-    });
-  }
-
-  const hint = add([
-    text("TAP OR SPACE TO CLIMB AGAIN", { size: 18 }),
-    pos(W / 2, 650),
-    anchor("center"),
-    color(COL.text),
-  ]);
-  hint.onUpdate(() => {
-    hint.opacity = wave(0.3, 1, time() * 3);
-  });
-
-  add([
-    text("S U L L E N   S T U D I O", { size: 16 }),
-    pos(W / 2, 880),
-    anchor("center"),
-    color(COL.mint),
-    opacity(0.7),
-  ]);
-
-  let started = false;
-  const retry = () => {
-    if (started) return;
-    started = true;
-    go("game");
-  };
-  playHandler = retry;
-  onKeyPress("space", retry);
-  onKeyPress("enter", retry);
-  // small delay so a death-touch doesn't instantly restart
-  wait(0.4, () => {
-    onMousePress(retry);
-    onTouchStart(retry);
-  });
-});
+// Scenes are registered AFTER kaplay() and initPalette(), never at module
+// import time: a scene body references kaplay globals that do not exist until
+// kaplay() has run.
+registerMenuScene();
+registerGameoverScene();
 
 go("menu");
