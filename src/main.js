@@ -14,6 +14,7 @@ import {
   BEST_KEY,
   GRUNT,
 } from "./config.js";
+import { rollPlatformPickup, addPickup, dropFromDemon } from "./pickups.js";
 import { COL, initPalette } from "./palette.js";
 import { DT } from "./frame.js";
 import {
@@ -179,8 +180,17 @@ scene("game", () => {
   const pupils = player.pupils;
   const ghosts = createGhosts(player);
   const arsenal = createArsenal();
-  const world = createWorld({ player, onPlatform: null });
-  const horde = createHorde({ player, onDeath: null });
+  const world = createWorld({
+    player,
+    onPlatform: (p, alt) => {
+      const kind = rollPlatformPickup(alt, rand(1), rand(1), rand(1));
+      if (kind) addPickup(kind, p.pos.x, p.pos.y - PLAT_H / 2 - 14);
+    },
+  });
+  const horde = createHorde({
+    player,
+    onDeath: (g) => dropFromDemon(g, rand(1), rand(1)),
+  });
 
   // Single writer for death: the scene reads `dead`, but player.js and
   // world.js read player.dead. They must never disagree.
@@ -300,6 +310,14 @@ scene("game", () => {
     damagePlayer(GRUNT.damage, g.pos); // same helper the hazards use
   });
 
+  player.onCollide("pickup", (p) => {
+    if (dead) return;
+    if (p.kind === "medkit") player.heal(p.amount);
+    else if (p.kind === "ammo") arsenal.give("scattergun", p.amount);
+    else if (p.kind === "weapon") arsenal.give("scattergun", 24);
+    destroy(p);
+  });
+
   onCollide("bullet", "demon", (b, d) => {
     destroy(b);
     d.hp -= b.damage;
@@ -340,6 +358,7 @@ scene("game", () => {
       if (b.pos.y > killY || b.pos.y < camPos().y - H) destroy(b);
     }
     for (const g of get("demon")) if (g.pos.y > killY) destroy(g);
+    for (const p of get("pickup")) if (p.pos.y > killY) destroy(p);
 
     // fell below the screen
     if (player.pos.y - PLAYER_R > camPos().y + H / 2 + 60) endRun();
